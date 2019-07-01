@@ -1,13 +1,16 @@
 <?php
-	/*
-	PLUGIN NAME: Unifiedpurse Payment Gateway for WooCommerce
-	DESCRIPTION: Through Unifiedpurse, you can accept payments with, Bitcoin, Litecoin, Ethereum and over 80 alternatives.
-	AUTHOR: Unifiedpurse
-	AUTHOR URI: http://unifiedpurse.com/
-	License:                GPL-2.0+
-	License URI:            http://www.gnu.org/licenses/gpl-2.0.txt
-	WC tested up to:        3.7.0
-	*/
+/**
+ * Plugin Name: Unifiedpurse WooCommerce Payment Gateway
+ * Plugin URI: https://unifiedpurse.com
+ * Description: Through Unifiedpurse, you can accept payments with, Bitcoin, Litecoin, Ethereum and over 80 alternatives.
+ * Version: 1.0.0
+ * Author: Tormuto Information Technologies
+ * Author URI: http://tormuto.com/
+ * License: GPL-2.0+
+ * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
+ * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
+ * WC tested up to: 3.7.0
+*/
 	
 if ( ! defined( 'ABSPATH' ) ) {exit; }
 add_action('plugins_loaded', 'wc_unifiedpurse_pay_gateway', 99);
@@ -20,7 +23,7 @@ function wc_unifiedpurse_pay_gateway(){
 		public function __construct(){
 			$this->id			= 'unifiedpurse';
 			$this->method_title = __('Bitcoin, Litecoin, Ethereum, 80+ alternatives (UnifiedPurse)', 'woothemes');
-	        $this->icon 		= WP_PLUGIN_URL . "/" . plugin_basename( dirname(__FILE__)) . '/images/logo.png';
+	        $this->icon 		= WP_PLUGIN_URL . "/" . plugin_basename( dirname(__FILE__)) . '/assets/images/logo.png';
 	        $this->has_fields 	= false;		
 
 			// Load the form fields
@@ -52,8 +55,7 @@ function wc_unifiedpurse_pay_gateway(){
 		/**
 		* Check if this gateway is enabled and available in the users country
 		*/		
-		function is_valid_for_use()
-		{
+		function is_valid_for_use(){
 			/*
 			if (!in_array(get_option('woocommerce_currency'), array('NGN'
 			//, 'USD'
@@ -63,8 +65,7 @@ function wc_unifiedpurse_pay_gateway(){
 			return true;
 		}
 		
-		public function admin_options()
-		{
+		public function admin_options(){
 	    	?>
 			<h3><?php _e('UnifiedPurse Payment', 'woothemes'); ?></h3>
 			<p><?php _e('With Unifiedpurse you can accept payments through, Bitcoin, Litecoin, Ethereum and over 80 alternatives.  If you need help with the payment module, <a href="https://unifiedpurse.com/docs" target="_blank">click here for a Payment module description</a>', 'woothemes'); ?></p>
@@ -112,7 +113,7 @@ function wc_unifiedpurse_pay_gateway(){
 				'unifiedpurse_merchant_id' => array(
 				'title' => __( 'Unifiedpurse Username or Email', 'woothemes' ),
 				'type' => 'text',
-				'description' => __( 'You merchant id for Unifiedpurse', 'woothemes' ),
+				'description' => __( 'Your username on Unifiedpurse (<a href="https://unifiedpurse.com/profile" target="_blank">https://unifiedpurse.com/profile</a>)', 'woothemes' ),
 				'default' => __( 'XXXXXXX', 'woothemes' )
 				),
 				'paylanguage' => array(
@@ -140,8 +141,7 @@ function wc_unifiedpurse_pay_gateway(){
 		 * Process the payment and return the result
 		 **/			
 		
-		function generate_unifiedpurse_form($order_id)
-		{			
+		function generate_unifiedpurse_form($order_id){
 			global $woocommerce;
 			global $wpdb;
 
@@ -319,7 +319,6 @@ function wc_unifiedpurse_pay_gateway(){
 				else {
 					$transaction=(array)current($res);
 					$order_id=$transaction['order_id']; 
-					
 					$unifiedpurse_merchant_id=$this->unifiedpurse_merchant_id;
 					
 					
@@ -327,7 +326,8 @@ function wc_unifiedpurse_pay_gateway(){
 					$order = new WC_Order($order_id);
 					$order_amount=$order->order_total;
 					$currency_code = $woocommerce_currency = get_woocommerce_currency();
-					
+					$success=($transaction['status']==1);
+                    
 					$approved_amount=0;
 					$response_description="";
 					$response_code="";
@@ -346,7 +346,7 @@ function wc_unifiedpurse_pay_gateway(){
 					if($returnCode != 200)$response=curl_error($ch);
 					curl_close($ch);	
 					$json=null;
-					
+
 					if($returnCode == 200)$json=@json_decode($response,true);
 					else $response="HTTP Error $returnCode: $response. ";
 					$new_status=0;
@@ -354,37 +354,31 @@ function wc_unifiedpurse_pay_gateway(){
 					
 					if(!empty($json['error'])){
 						$response_description=$json['error'];
-						$response_code=$returnCode;
-						
+						$response_code=$returnCode;						
 					}
-					elseif(!empty($json))
-					{
+					elseif(!empty($json)){
 						$response_description=$json['info'];
 						$response_code=$new_status=$json['status'];
 						$approved_amount=$json['amount'];
-						
+                        $success=($new_status==1);
 					}
-					else
-					{
+					else {
 						$response_description=$response;
 						$response_code=$returnCode;
 					}
 				
-					if($order->status !== 'completed')
-					{
-						if($new_status==1)
-						{			
+					if($order->status !== 'completed'){
+						if($new_status==1){			
 							$order->add_order_note(__('Unifiedpurse payment was successful', 'woothemes'));
 							$order->payment_complete();
 						}
-						elseif($new_status==-1)
-						{ 
+						elseif($new_status==-1){ 
 							$order->cancel_order(__('Unifiedpurse payment verification failed', 'woothemes'));
 							error_log("$response_description Check to see if data is corrupted for OrderID:$order_id, Transaction Reference: $transaction_reference ");
 						}
 						//update_post_meta($order_id,'UnifiedpursetransactionId', $_GET['transactionId']);
 						$response_descriptions=addslashes($response_description);
-						$sql="UPDATE wc_woocommerce_unifiedpurse SET response_code='$response_code',response_description='$response_descriptions',status='new_status' WHERE transaction_id='$transaction_reference'";
+						$sql="UPDATE wc_woocommerce_unifiedpurse SET response_code='$response_code',response_description='$response_descriptions',status='$new_status' WHERE transaction_id='$transaction_reference'";
 						$wpdb->query($sql);
 					}
 					elseif($new_status==-1)error_log("$response_description Unifiedpurse info received for already completed payment OrderID:$order_id, Transaction Reference: $transaction_reference ");
@@ -650,13 +644,10 @@ function wc_unifiedpurse_gateway( $methods ) {
 * Add Settings link to the plugin entry in the plugins menu
 **/
 function wc_unifiedpurse_gateway_action_links($links){
-    $settings_link = array(
-    	'settings' => '<a href="' . admin_url( 'admin.php?page=wc-settings&tab=checkout&section=unifiedpurse' ) . '" title="View UnifiedPurse WooCommerce Settings">Settings</a>'
-    );
-
-    return array_merge($links,$settings_link);
+    $links[]='<a href="' . admin_url( 'admin.php?page=wc-settings&tab=checkout&section=unifiedpurse' ) . '" title="View UnifiedPurse WooCommerce Settings">Settings</a>';
+    return $links;
 }
-add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'wc_unifiedpurse_gateway_action_links' );
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'wc_unifiedpurse_gateway_action_links' ); //todo:: woo_unifiedpurse
 
 add_action('admin_menu', 'unifiedpurse_transactions_menu');
 function unifiedpurse_transactions_menu() {
