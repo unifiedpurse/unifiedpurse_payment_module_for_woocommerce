@@ -6,5 +6,4 @@ You must have created a [UNIFIEDPURSE Account](https://unifiedpurse.com/signup) 
 	2. Activate the plugin through the 'Plugins' menu in WordPress
 	3. Edit to Fill out your Unifiedpurse Username in the WooCommerce Payment Gateways page (WooCommerce -> Checkout)
 	
-    
     Alternatively, install the plugin automatically by uploading the zipped file woo-unifiedpurse.zip from the WordPress admin panel.
