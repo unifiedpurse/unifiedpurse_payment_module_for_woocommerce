@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Unifiedpurse WooCommerce Payment Gateway
  * Plugin URI: https://unifiedpurse.com
- * Description: Through Unifiedpurse, you can accept payments with, Bitcoin, Litecoin, Ethereum and over 80 alternatives.
+ * Description: Through Unifiedpurse, you can accept payments via Bitcoin and over 80 alternatives.
  * Version: 1.0.0
  * Author: Tormuto Information Technologies
  * Author URI: http://tormuto.com/
  * License: GPL-2.0+
  * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
  * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
- * WC tested up to: 3.7.0
+ * WC tested up to: 3.9.3
 */
 	
 if ( ! defined( 'ABSPATH' ) ) {exit; }
@@ -22,13 +22,16 @@ function wc_unifiedpurse_pay_gateway(){
 
 		public function __construct(){
 			$this->id			= 'unifiedpurse';
-			$this->method_title = __('Bitcoin, Litecoin, Ethereum, 80+ alternatives (UnifiedPurse)', 'woothemes');
-	        $this->icon 		= WP_PLUGIN_URL . "/" . plugin_basename( dirname(__FILE__)) . '/assets/images/logo.png';
-	        $this->has_fields 	= false;		
+			$this->method_title = __('UnifiedPurse - Bitcoin or 80+ alternative payment methods', 'woothemes');
+            $this->assets_base  =   WP_PLUGIN_URL . "/" . plugin_basename( dirname(__FILE__)) . '/assets/';
+	        $this->icon_alt 		= $this->assets_base.'images/logo.png';
+            $this->icon ="";
+            $this->supported_currencies=array(); //'USD','EUR'
+            $this->db_tablename = 'wc_woo_unifiedpurse';
 
+	        $this->has_fields 	= false;
 			// Load the form fields
-			$this->init_form_fields();
-			
+			$this->init_form_fields();			
 			// Load the settings.
 			$this->init_settings();
 		
@@ -37,13 +40,12 @@ function wc_unifiedpurse_pay_gateway(){
 			$this->title = $this->settings['title'];
 			$this->unifiedpurse_merchant_id = $this->settings['unifiedpurse_merchant_id'];
 			$this->subjecttext = $this->settings['subjecttext'];
-			$this->paylanguage = $this->settings['paylanguage'];
 			$this->description = $this->settings['description'];
 
 			// Actions
 			//add_action( 'init', array(& $this, 'check_callback') );
 			//add_action( 'valid_unifiedpurse_callback', array(& $this, 'successful_request'));
-			add_action( 'woocommerce_api_' . strtolower( get_class( $this ) ), array( $this, 'check_callback' ) );
+			add_action( 'woocommerce_api_' . strtolower( get_class($this) ), array( $this, 'check_callback' ) );
 			add_action(	'woocommerce_update_options_payment_gateways', array(& $this, 'process_admin_options', ));
 			add_action(	'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 			add_action(	'woocommerce_receipt_unifiedpurse', array( $this, 'receipt'));
@@ -56,12 +58,7 @@ function wc_unifiedpurse_pay_gateway(){
 		* Check if this gateway is enabled and available in the users country
 		*/		
 		function is_valid_for_use(){
-			/*
-			if (!in_array(get_option('woocommerce_currency'), array('NGN'
-			//, 'USD'
-			
-			))) return false;
-			*/
+			if(!empty($this->supported_currencies)&&!in_array(get_option('woocommerce_currency'),$this->supported_currencies)) return false;
 			return true;
 		}
 		
@@ -87,8 +84,7 @@ function wc_unifiedpurse_pay_gateway(){
 	    }		
 
 			
-		function init_form_fields() 
-		{
+		function init_form_fields(){
 			global $woocommerce;
 			
 			$this->form_fields = array(
@@ -102,26 +98,19 @@ function wc_unifiedpurse_pay_gateway(){
 				'title' => __( 'Title', 'woothemes' ),
 				'type' => 'text',
 				'description' => __( 'This controls the title which the user sees during checkout.', 'woothemes' ),
-				'default' => __( 'Bitcoin, Litecoin, Ethereum, 80+ alternatives (UnifiedPurse)', 'woothemes' )
+				'default' => __( 'UnifiedPurse - Bitcoin and 80+ alternative payment methods', 'woothemes' )
 				),
 				'description' => array(
 				'title' => __( 'Description', 'woothemes' ),
 				'type' => 'text',
 				'description' => __( 'Unifiedpurse Payment description', 'woothemes' ),
-				'default' => __( 'Pay with Bitcoin, Litecoin, Ethereum, 80+ alternatives', 'woothemes' )
+				'default' => __( 'Universal payment methods via UnifiedPurse', 'woothemes' )
 				),
 				'unifiedpurse_merchant_id' => array(
 				'title' => __( 'Unifiedpurse Username or Email', 'woothemes' ),
 				'type' => 'text',
 				'description' => __( 'Your username on Unifiedpurse (<a href="https://unifiedpurse.com/profile" target="_blank">https://unifiedpurse.com/profile</a>)', 'woothemes' ),
 				'default' => __( 'XXXXXXX', 'woothemes' )
-				),
-				'paylanguage' => array(
-				'title' => __( 'Language in payment window', 'woothemes' ), 
-				'type' => 'select',
-				'options' => array('en-gb' => 'English'),
-				'description' => __( 'en-gb for English.', 'woothemes' ),
-				'default' => 'en-gb'
 				),
 				'subjecttext' => array(
 				'title' => __( 'Payment Subject', 'woothemes' ),
@@ -146,22 +135,24 @@ function wc_unifiedpurse_pay_gateway(){
 			global $wpdb;
 
 
-			$sql="CREATE TABLE IF NOT EXISTS wc_woocommerce_unifiedpurse(
-					id int not null auto_increment,
-					primary key(id),
-					order_id INT NOT NULL,unique(order_id),
-					time INT NOT NULL,
-					transaction_id VARCHAR(48) NOT NULL,
-					approved_amount VARCHAR(12) NOT NULL,
-					customer_email VARCHAR(160) NOT NULL,
-					response_description VARCHAR(225) NOT NULL,
-					response_code VARCHAR(5) NOT NULL,
-					transaction_amount varchar(12) NOT NULL,
-					customer_firstname VARCHAR(60) NOT NULL,
-					customer_lastname VARCHAR(60) NOT NULL,
-					customer_id VARCHAR(160) NOT NULL,
-					currency_code VARCHAR(3) NOT NULL,
-					status TINYINT(1) NOT NULL DEFAULT '0'
+			$sql="CREATE TABLE IF NOT EXISTS {$this->db_tablename}(
+					id INT NOT NULL AUTO_INCREMENT,PRIMARY KEY(id),
+					order_id INT NOT NULL DEFAULT 0,unique(order_id),
+					time INT NOT NULL DEFAULT 0,
+					transaction_reference VARCHAR(68) NOT NULL DEFAULT '',INDEX(transaction_reference),
+					approved_amount DOUBLE NOT NULL DEFAULT 0,
+					customer_email VARCHAR(160) NOT NULL DEFAULT '',
+					response_description VARCHAR(225) NOT NULL DEFAULT '',
+					response_code VARCHAR(5) NOT NULL DEFAULT '',
+					external_ref VARCHAR(225) NOT NULL DEFAULT '',INDEX(external_ref),
+					transaction_amount DOUBLE NOT NULL DEFAULT 0,
+					customer_firstname VARCHAR(60) NOT NULL DEFAULT '',
+					customer_lastname VARCHAR(60) NOT NULL DEFAULT '',
+					customer_phone VARCHAR(32) NOT NULL DEFAULT '',
+					customer_id VARCHAR(160) NOT NULL DEFAULT '',
+					currency_code VARCHAR(3) NOT NULL DEFAULT '',
+					status TINYINT(1) NOT NULL DEFAULT '0',
+                    json_details TEXT
 					)";
 			$wpdb->query($sql);
 			
@@ -175,36 +166,39 @@ function wc_unifiedpurse_pay_gateway(){
 			$unifiedpurseCurrency = $woocommerce_currency = get_woocommerce_currency();
 			/* URLs */
 			$time=$transaction_reference=time();			
-			$callbackURL=WC()->api_request_url( 'WC_Gateway_UnifiedpursePayment' );
+			$callbackURL=WC()->api_request_url( get_class($this) );
 			if(!strstr($callbackURL,'?'))$callbackURL.='?';
 			$callbackURL.="&ref=$transaction_reference";
 			
 			//$acceptURL = $this->get_return_url( $order );
-			//$callbackAcceptURL = add_query_arg ('wooorderid', $order_id, add_query_arg ('wc-api', 'WC_Gateway_UnifiedpursePayment', $this->get_return_url( $order )));
+			//$callbackAcceptURL = add_query_arg ('wooorderid', $order_id, add_query_arg ('wc-api', get_class($this), $this->get_return_url( $order )));
 
 			$notify_url=$callbackURL;
 			$customer_email=$order->billing_email;
 			$customer_firstname=$order->billing_first_name;
 			$customer_lastname=$order->billing_last_name;
+            $customer_phone=$order->get_billing_phone();
 			
 			//"description" => $unifiedpurseSubject,
 			
 			$customer_fullname="$customer_firstname $customer_lastname";
-			$res=$wpdb->get_results("SELECT * FROM wc_woocommerce_unifiedpurse WHERE order_id='$order_id' AND status=0 LIMIT 1");
+			$res=$wpdb->get_results("SELECT * FROM {$this->db_tablename} WHERE order_id='$order_id' AND status=0 LIMIT 1");
 			if(!empty($res)){
 					$transaction=(array)current($res);	
-					$sql="UPDATE wc_woocommerce_unifiedpurse SET
-						transaction_id='$transaction_reference',time='$time',
+					$sql="UPDATE {$this->db_tablename} SET
+						transaction_reference='$transaction_reference',time='$time',
 						transaction_amount='$amountTotal',
-						currency_code='$unifiedpurseCurrency',customer_email='$customer_email',
+						currency_code='$unifiedpurseCurrency',
+                        customer_email='$customer_email',
+                        customer_phone='$customer_phone',
 						customer_firstname='$customer_firstname',customer_lastname='$customer_lastname',customer_id='$customer_email'
 						WHERE id={$transaction['id']} LIMIT 1";					
 			}
 			else { 
 
-				$sql="INSERT INTO wc_woocommerce_unifiedpurse
-				(order_id,transaction_id,time,transaction_amount,currency_code,customer_email,customer_firstname,customer_lastname,customer_id) 
-				VALUES('$order_id','$transaction_reference','$time','$amountTotal','$unifiedpurseCurrency','$customer_email','$customer_firstname','$customer_lastname','$customer_email')";
+				$sql="INSERT INTO {$this->db_tablename}
+				(order_id,transaction_reference,time,transaction_amount,currency_code,customer_email,customer_phone,customer_firstname,customer_lastname,customer_id) 
+				VALUES('$order_id','$transaction_reference','$time','$amountTotal','$unifiedpurseCurrency','$customer_email','$customer_phone','$customer_firstname','$customer_lastname','$customer_email')";
 			}
 			$wpdb->query($sql);
 		
@@ -256,11 +250,12 @@ function wc_unifiedpurse_pay_gateway(){
 		
 			$domain=$_SERVER['HTTP_HOST'];
 			if(substr($domain,0,4)=='www.')$domain=substr($domain,4);
-			$mail_from="<no-reply@$domain>";
+            $site_name=get_option('blogname');
+			$mail_from="$site_name<no-reply@$domain>";
 			$mail_headers.="From: $mail_from" . "\r\n";
 			$mail_headers.= 'X-Mailer: PHP/' . phpversion();
 			
-			$history_params=array('wc-api'=>'WC_Gateway_UnifiedpursePayment','wooorderid'=>$order_id,'ref'=>$transaction_reference);
+			$history_params=array('wc-api'=>get_class($this),'load_ippay_as'=>'1','wooorderid'=>$order_id,'ref'=>$transaction_reference);
 			$checkout_url = $woocommerce->cart->get_checkout_url();
 			$history_url = add_query_arg ($history_params, $checkout_url);
 			
@@ -284,8 +279,7 @@ function wc_unifiedpurse_pay_gateway(){
 			$order = new WC_Order( $order_id );
 			
 		 	// Return payment page
-			return array
-			(
+			return array(
 			'result'    => 'success',
 			'redirect'	=> $order->get_checkout_payment_url( true )
 			);
@@ -314,19 +308,17 @@ function wc_unifiedpurse_pay_gateway(){
 				$transaction_reference=floatval($transaction_reference);
 				$order_id=0;
 				
-				$res=$wpdb->get_results("SELECT * FROM wc_woocommerce_unifiedpurse WHERE transaction_id=$transaction_reference LIMIT 1");
+				$res=$wpdb->get_results("SELECT * FROM {$this->db_tablename} WHERE transaction_reference=$transaction_reference LIMIT 1");
 				if(empty($res))$Error=$response_description="No unifiedpurse transaction record found with the supplied reference";
 				else {
 					$transaction=(array)current($res);
 					$order_id=$transaction['order_id']; 
 					$unifiedpurse_merchant_id=$this->unifiedpurse_merchant_id;
 					
-					
-					$order_id=(int)$posted["wooorderid"];
 					$order = new WC_Order($order_id);
 					$order_amount=$order->order_total;
 					$currency_code = $woocommerce_currency = get_woocommerce_currency();
-					$success=($transaction['status']==1);
+					$new_status=$transaction['status'];
                     
 					$approved_amount=0;
 					$response_description="";
@@ -348,9 +340,7 @@ function wc_unifiedpurse_pay_gateway(){
 					$json=null;
 
 					if($returnCode == 200)$json=@json_decode($response,true);
-					else $response="HTTP Error $returnCode: $response. ";
-					$new_status=0;
-					
+					else $response="HTTP Error $returnCode: $response. ";					
 					
 					if(!empty($json['error'])){
 						$response_description=$json['error'];
@@ -369,8 +359,10 @@ function wc_unifiedpurse_pay_gateway(){
 				
 					if($order->status !== 'completed'){
 						if($new_status==1){			
-							$order->add_order_note(__('Unifiedpurse payment was successful', 'woothemes'));
-							$order->payment_complete();
+							$order->add_order_note(__("Unifiedpurse payment was successful. Ref: $transaction_reference", 'woothemes'));
+                            $order->update_status('completed');
+							$order->payment_complete($transaction_reference);
+                            WC()->cart->empty_cart();
 						}
 						elseif($new_status==-1){ 
 							$order->cancel_order(__('Unifiedpurse payment verification failed', 'woothemes'));
@@ -378,38 +370,40 @@ function wc_unifiedpurse_pay_gateway(){
 						}
 						//update_post_meta($order_id,'UnifiedpursetransactionId', $_GET['transactionId']);
 						$response_descriptions=addslashes($response_description);
-						$sql="UPDATE wc_woocommerce_unifiedpurse SET response_code='$response_code',response_description='$response_descriptions',status='$new_status' WHERE transaction_id='$transaction_reference'";
+						$sql="UPDATE {$this->db_tablename} SET response_code='$response_code',response_description='$response_descriptions',status='$new_status' WHERE transaction_reference='$transaction_reference'";
 						$wpdb->query($sql);
 					}
 					elseif($new_status==-1)error_log("$response_description Unifiedpurse info received for already completed payment OrderID:$order_id, Transaction Reference: $transaction_reference ");
 					
-					$f_email=$wpdb->get_var("SELECT customer_email FROM wc_woocommerce_unifiedpurse WHERE transaction_id='$transaction_reference' LIMIT 1");
+					$f_email=$wpdb->get_var("SELECT customer_email FROM {$this->db_tablename} WHERE transaction_reference='$transaction_reference' LIMIT 1");
 									
 					
-					$history_params=array('wc-api'=>'WC_Gateway_UnifiedpursePayment','f_email'=>$f_email,'p'=>@$posted['p']);
+					$history_params=array('wc-api'=>get_class($this),'f_email'=>$f_email,'p'=>@$posted['p']);
 					$history_url = add_query_arg ($history_params, $checkout_url);
+                    $success=($new_status==1);
 				}
 				
-				if($success)
-				{
+				if($success){
+                    $receipt_url=$order->get_checkout_order_received_url();
 					$toecho="<div class='successMsg'>
-							$response_description<br/>
-							Your order has been successfully Processed <br/>
-							ORDER ID: $order_id<br/>
-							TRANSACTION REFERRENCE: $transaction_reference<br/>
-							[<a href='$history_url'>TRANSACTION HISTORY</a>]  
-							[<a href='$home_url'>HOME</a>]
+                                $response_description<br/>
+                                Your order has been successfully Processed <br/>
+                                ORDER ID: $order_id<br/>
+                                TRANSACTION REFERRENCE: $transaction_reference<br/>
+                                <div style='text-align:center;'>
+                                    <a href='$history_url' class='btn btn-default btn-sm'><i class='fa fa-list'></i> TRANSACTIONS</a>
+                                    <a href='$receipt_url' class='btn btn-default btn-sm><i class='fa fa-home'></i> VIEW RECEIPT</a>
+                                </div>
 							</div>";
 				}
-				else
-				{
+				else {
 					$toecho="<div class='errorMessage'>
 							Your transaction was not successful<br/>
 							REASON: $response_description<br/>
 							ORDER ID: $order_id<br/>
 							TRANSACTION REFERRENCE: $transaction_reference<br/>
-							[<a href='$history_url'>TRANSACTION HISTORY</a>]  
-							[<a href='$home_url'>HOME</a>]
+							<a href='$history_url' class='btn btn-default btn-sm'><i class='fa fa-list'></i> TRANSACTION HISTORY</a>  
+							<a href='$home_url' class='btn btn-default btn-sm'><i class='fa fa-home'></i> HOME</a>
 							</div>";
 				}
 				
@@ -419,9 +413,9 @@ function wc_unifiedpurse_pay_gateway(){
 				$f_email=addslashes(trim($posted['f_email']));
 				
 				$dwhere=($f_email=='admin')?"":"  WHERE customer_email='$f_email' ";				
-				$num=$wpdb->get_var("SELECT COUNT(*) FROM wc_woocommerce_unifiedpurse $dwhere ");
+				$num=$wpdb->get_var("SELECT COUNT(*) FROM {$this->db_tablename} $dwhere ");
 				
-				$history_url = add_query_arg ('wc-api','WC_Gateway_UnifiedpursePayment', $checkout_url);
+				$history_url = add_query_arg ('wc-api',get_class($this), $checkout_url);
 
 				$toecho.="<h3><i class='fa fa-credit-card'></i>
 					Unifiedpurse Transactions 
@@ -447,50 +441,41 @@ function wc_unifiedpurse_pay_gateway(){
 					if($p>$totalpages)$p=$totalpages;
 					if($p<1)$p=1;
 					$offset=($p-1) *$perpage;
-					$sql="SELECT * FROM wc_woocommerce_unifiedpurse $dwhere ORDER BY id DESC LIMIT $offset,$perpage ";
-					$query=$wpdb->get_results($sql);
+					$sql="SELECT * FROM {$this->db_tablename} $dwhere ORDER BY id DESC LIMIT $offset,$perpage ";
+					$query=$wpdb->get_results($sql);                    
+                    $status_vals=array(
+                        -1=>"<span style='color:#ff0000;'>FAILED</span>",
+                        0=>"<span style='color:#ff9900;'>PENDING</span>",
+                        1=>"<span style='color:#009900;font-weight:bold;'>SUCCESSFUL</span>",
+                        );
+                        
 					$toecho.="
 							<table style='width:100%;' class='table table-striped table-condensed' >
 								<tr style='width:100%;text-align:center;'>
-									<th>
-										S/N
-									</th>
-									<th>
-										EMAIL
-									</th>
-									<th>
-										TRANS. REF.
-									</th>
-									<th>
-										TRANS. DATE
-									</th>
-									<th>
-										TRANS. AMOUNT
-									</th>
-									<th>
-										APPROVED AMOUNT
-									</th>
-									<th>
-										TRANSACTION	RESPONSE
-									</th>
-									<th>
-										ACTION
-									</th>
+                                    <th>S/N</th>
+									<th>Email</th>
+									<th>Reference</th>
+									<th>Order#</th>
+									<th>Status</th>
+									<th>Date</th>
+									<th>Amount</th>
+									$code_td
+									<th style='width:20%;'>Transaction Response</th>
+									<th>Action</th>
 								</tr>";
 					$sn=$offset;
-					foreach($query  as $row)
-					{
+                    $admin_edit_url=get_admin_url(null,'post.php?action=edit');
+                    
+					foreach($query  as $row){
 						$row=(array)$row;
 						$sn++;
 						
-						if($row['status']==0)
-						{
-							$history_params=array('wc-api'=>'WC_Gateway_UnifiedpursePayment','wooorderid'=>$row['order_id'],'ref'=>$row['transaction_id'],'p'=>$p);
+						if($row['status']==0){
+							$history_params=array('wc-api'=>get_class($this),'wooorderid'=>$row['order_id'],'ref'=>$row['transaction_reference'],'p'=>$p);
 							$history_url = add_query_arg ($history_params, $checkout_url);
 							$trans_action="<a href='$history_url' class='btn btn-xs btn-primary' >REQUERY</a>";
 						}
-						else
-						{
+						else {
 							$trans_action='NONE';						
 						}
 						$date_time=date('d-m-Y g:i a',$row['time']);
@@ -498,35 +483,22 @@ function wc_unifiedpurse_pay_gateway(){
 						
 						if(empty($transaction_response))$transaction_response='(pending)';
 						if(empty($row['approved_amount']))$row['approved_amount']='0.00';
+                        $transaction_amount=number_format($row['transaction_amount'],2);
 						
 						$toecho.="<tr align='center'>
-									<td>
-										$sn
-									</td>
+									<td>$sn</td>
 									<td>
 										{$row['customer_email']} <br/>
 										(<i>{$row['customer_firstname']} {$row['customer_lastname']}</i>)
 									</td>
-									<td>
-										{$row['transaction_id']}
+									<td>{$row['transaction_reference']}</td>
+                                    <td><a href='{$admin_edit_url}&post={$row['order_id']}' target='_blank'>#{$row['order_id']}</a></td>
+									<td>{$status_vals[$row['status']]}</td>
+									<td>$date_time
 									</td>
-									<td>
-										$date_time
-									</td>
-									<td>
-										{$row['transaction_amount']}
-										{$row['currency_code']}
-									</td>
-									<td>
-										{$row['approved_amount']}
-										{$row['currency_code']}
-									</td>
-									<td>
-										$transaction_response
-									</td>
-									<td>
-										$trans_action
-									</td>								
+									<td>{$transaction_amount} {$row['currency_code']}</td>
+									<td style='font-size:small;word-break:break-word;'>$transaction_response</td>
+									<td>$trans_action</td>								
 								 </tr>";
 					}
 					$toecho.="</table>";
@@ -535,7 +507,7 @@ function wc_unifiedpurse_pay_gateway(){
 					$prev=$p-1;
 					$next=$p+1;
 					
-					$history_params=array('wc-api'=>'WC_Gateway_UnifiedpursePayment','f_email'=>$f_email);
+					$history_params=array('wc-api'=>get_class($this),'f_email'=>$f_email);
 				
 					if($totalpages>2&&$prev>1){
 						$history_params['p']=1;
@@ -563,20 +535,16 @@ function wc_unifiedpurse_pay_gateway(){
 					$toecho.="<div class='text-right' >$pagination</div>";
 				}
 			}
-			
-			
-			echo "<!DOCTYPE html>
-		<html lang='en'>
-		<head>
-			<meta charset='utf-8'>
-			<meta http-equiv='X-UA-Compatible' content='IE=edge'>
-			<meta name='viewport' content='width=device-width, initial-scale=1'>
-			<title>Unifiedpurse WooCommerce  Payments</title>
-			<link href='//maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css' rel='stylesheet'>
+            /*
+            
 			<link href='//maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css' rel='stylesheet'>
-			<link href='//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css' rel='stylesheet'>
+			
 			<script src='//ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js'></script>
 			<script src='//maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js'></script>
+            */
+			
+            $inside_head="<link href='{$this->assets_base}/css/bootstrap.min.css' rel='stylesheet'>
+            <link href='//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css' rel='stylesheet'>
 			<style type='text/css'>
 				.errorMessage,.successMsg
 				{
@@ -591,18 +559,23 @@ function wc_unifiedpurse_pay_gateway(){
 					margin:auto;
 				}
 				
-				.errorMessage
-				{
-					background-color:#ff5500;
-				}
+				.errorMessage{background-color:#ff5500;}
 				
-				.successMsg
-				{
-					background-color:#00aa99;
-				}
-				
+				.successMsg{background-color:#00aa99;}
+                a.btn.btn-sm:visited,a.btn.btn-xs:visited{color:#ffffff;}
+                a.btn.btn-default:visited{color:#333333;}
+				table td, table th{color:#333;background-color:#ffffff;}
 				body,html{min-width:100%;}
-			</style>
+			</style>";
+			/*
+			$str= "<!DOCTYPE html>
+		<html lang='en'>
+		<head>
+			<meta charset='utf-8'>
+			<meta http-equiv='X-UA-Compatible' content='IE=edge'>
+			<meta name='viewport' content='width=device-width, initial-scale=1'>
+			<title>Unifiedpurse WooCommerce  Payments</title>
+			
 		</head>
 		<body>
 			<div class='container' style='min-height: 500px;padding-top:15px;padding-bottom:15px;'>
@@ -610,7 +583,12 @@ function wc_unifiedpurse_pay_gateway(){
 			</div>
 		</body>
 		</html>";
-
+        */
+            
+			if(empty($LOAD_AS_ADMIN))get_header();
+			echo "<div class='container' style='padding-top:15px;padding-bottom:15px;'>$toecho</div>";
+            echo $inside_head;
+            if(empty($LOAD_AS_ADMIN))get_footer();
 			exit;
 		}
 	
